@@ -51,15 +51,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .single();
           setProfile(profileData as Profile | null);
 
-          // Admin access is restricted to a single authorised email address.
-          // The DB role check is kept as a secondary layer.
-          const adminEmail = "arhammukhtar777@gmail.com";
+          // Admin check — trust DB role only (no hardcoded email)
           const { data: roles } = await supabase
             .from("user_roles")
             .select("role")
             .eq("user_id", session.user.id);
           const hasAdminRole = roles?.some((r: any) => r.role === "admin") ?? false;
-          setIsAdmin(session.user.email === adminEmail && hasAdminRole);
+          setIsAdmin(hasAdminRole);
         } else {
           setProfile(null);
           setIsAdmin(false);

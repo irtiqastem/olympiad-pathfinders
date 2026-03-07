@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Plus, CheckCircle2, XCircle, Clock, FileText,
   Trophy, GraduationCap, Trash2, Users,
   BarChart3, Shield, AlertTriangle, Eye,
-  TrendingUp, Activity,
+  TrendingUp, Activity, Upload, BookOpen,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,9 +24,6 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-
-// ── Only this email may access the admin panel ───────────────────────────────
-const ADMIN_EMAIL = "arhammukhtar777@gmail.com";
 
 // ── Stat Card ────────────────────────────────────────────────────────────────
 function StatCard({
@@ -51,18 +48,16 @@ function StatCard({
 
 // ── Main Admin Page ──────────────────────────────────────────────────────────
 export default function Admin() {
-  const { user, loading } = useAuth();
+  const { user, loading, isAdmin } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const isAuthorized = user?.email === ADMIN_EMAIL;
-
   useEffect(() => {
-    if (!loading && (!user || !isAuthorized)) {
+    if (!loading && (!user || !isAdmin)) {
       toast({ title: "Access denied", description: "You are not authorized.", variant: "destructive" });
       navigate("/");
     }
-  }, [user, loading, isAuthorized, navigate, toast]);
+  }, [user, loading, isAdmin, navigate, toast]);
 
   if (loading) {
     return (
@@ -72,7 +67,7 @@ export default function Admin() {
     );
   }
 
-  if (!isAuthorized) return null;
+  if (!isAdmin) return null;
 
   return (
     <>
@@ -95,16 +90,18 @@ export default function Admin() {
       <section className="section-padding">
         <div className="container-narrow">
           <Tabs defaultValue="overview">
-            <TabsList className="mb-6 grid w-full max-w-2xl grid-cols-5">
+            <TabsList className="mb-6 grid w-full max-w-3xl grid-cols-6">
               <TabsTrigger value="overview" className="gap-1 text-xs"><BarChart3 className="h-3.5 w-3.5" /> Overview</TabsTrigger>
               <TabsTrigger value="problems" className="gap-1 text-xs"><Trophy className="h-3.5 w-3.5" /> Problems</TabsTrigger>
               <TabsTrigger value="submissions" className="gap-1 text-xs"><Clock className="h-3.5 w-3.5" /> Reviews</TabsTrigger>
+              <TabsTrigger value="resources" className="gap-1 text-xs"><BookOpen className="h-3.5 w-3.5" /> Resources</TabsTrigger>
               <TabsTrigger value="blog" className="gap-1 text-xs"><FileText className="h-3.5 w-3.5" /> Blog</TabsTrigger>
               <TabsTrigger value="scholarships" className="gap-1 text-xs"><GraduationCap className="h-3.5 w-3.5" /> Scholarships</TabsTrigger>
             </TabsList>
             <TabsContent value="overview"><OverviewTab /></TabsContent>
             <TabsContent value="problems"><ProblemsTab /></TabsContent>
             <TabsContent value="submissions"><SubmissionsTab /></TabsContent>
+            <TabsContent value="resources"><ResourcesTab /></TabsContent>
             <TabsContent value="blog"><BlogTab /></TabsContent>
             <TabsContent value="scholarships"><ScholarshipsTab /></TabsContent>
           </Tabs>
@@ -116,16 +113,17 @@ export default function Admin() {
 
 // ── Overview Tab ─────────────────────────────────────────────────────────────
 function OverviewTab() {
-  const [counts, setCounts] = useState({ problems: 0, submissions: 0, pending: 0, posts: 0, scholarships: 0, users: 0 });
+  const [counts, setCounts] = useState({ problems: 0, submissions: 0, pending: 0, posts: 0, scholarships: 0, users: 0, resources: 0 });
 
   useEffect(() => {
     const fetchCounts = async () => {
-      const [problems, submissions, posts, scholarships, users] = await Promise.all([
+      const [problems, submissions, posts, scholarships, users, resources] = await Promise.all([
         supabase.from("problems").select("id", { count: "exact", head: true }),
         supabase.from("submissions").select("id, status"),
         supabase.from("blog_posts").select("id", { count: "exact", head: true }),
         supabase.from("scholarships").select("id", { count: "exact", head: true }),
         supabase.from("profiles").select("id", { count: "exact", head: true }),
+        supabase.from("resources").select("id", { count: "exact", head: true }),
       ]);
       const pending = (submissions.data as any[] | null)?.filter((s) => s.status === "pending").length ?? 0;
       setCounts({
@@ -135,6 +133,7 @@ function OverviewTab() {
         posts: posts.count ?? 0,
         scholarships: scholarships.count ?? 0,
         users: users.count ?? 0,
+        resources: resources.count ?? 0,
       });
     };
     fetchCounts();
@@ -143,11 +142,12 @@ function OverviewTab() {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <h2 className="mb-5 text-lg font-semibold text-foreground">Platform Overview</h2>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Users} label="Registered Users" value={counts.users} color="bg-blue-500" />
         <StatCard icon={Trophy} label="Problems" value={counts.problems} color="bg-amber-500" />
         <StatCard icon={TrendingUp} label="Total Submissions" value={counts.submissions} color="bg-green-500" />
         <StatCard icon={Clock} label="Pending Reviews" value={counts.pending} color="bg-orange-500" />
+        <StatCard icon={BookOpen} label="Resources" value={counts.resources} color="bg-indigo-500" />
         <StatCard icon={FileText} label="Blog Posts" value={counts.posts} color="bg-purple-500" />
         <StatCard icon={GraduationCap} label="Scholarships" value={counts.scholarships} color="bg-teal-500" />
       </div>
@@ -377,6 +377,179 @@ function SubmissionsTab() {
         ))}
         {filtered.length === 0 && <p className="py-12 text-center text-muted-foreground">No {filter === "all" ? "" : filter} submissions.</p>}
       </div>
+    </div>
+  );
+}
+
+// ── Resources Tab (NEW — PDF/file upload) ────────────────────────────────────
+function ResourcesTab() {
+  const [resources, setResources] = useState<any[]>([]);
+  const [open, setOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+  const { user } = useAuth();
+
+  const fetchResources = async () => {
+    const { data } = await supabase.from("resources").select("*").order("created_at", { ascending: false });
+    setResources(data || []);
+  };
+
+  useEffect(() => { fetchResources(); }, []);
+
+  const handleAdd = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setUploading(true);
+    const form = new FormData(e.currentTarget);
+    const file = fileInputRef.current?.files?.[0];
+
+    let fileUrl: string | null = null;
+    let fileName: string | null = null;
+
+    if (file) {
+      fileName = file.name;
+      const filePath = `${Date.now()}_${file.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from("resources")
+        .upload(filePath, file);
+
+      if (uploadError) {
+        toast({ title: "Upload failed", description: uploadError.message, variant: "destructive" });
+        setUploading(false);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("resources")
+        .getPublicUrl(filePath);
+      fileUrl = urlData.publicUrl;
+    }
+
+    const { error } = await supabase.from("resources").insert({
+      title: form.get("title") as string,
+      description: form.get("description") as string || null,
+      category: form.get("category") as string,
+      type: form.get("type") as string,
+      file_url: fileUrl,
+      file_name: fileName,
+      created_by: user?.id,
+    });
+
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "✅ Resource uploaded!" });
+      setOpen(false);
+      (e.target as HTMLFormElement).reset();
+      fetchResources();
+    }
+    setUploading(false);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    const resource = resources.find((r) => r.id === deleteId);
+    // Delete file from storage if exists
+    if (resource?.file_url) {
+      const path = resource.file_url.split("/resources/")[1];
+      if (path) await supabase.storage.from("resources").remove([path]);
+    }
+    const { error } = await supabase.from("resources").delete().eq("id", deleteId);
+    if (!error) { toast({ title: "Resource deleted" }); fetchResources(); }
+    setDeleteId(null);
+  };
+
+  const typeLabels: Record<string, string> = { book: "Book", worksheet: "Worksheet", video: "Video" };
+
+  return (
+    <div>
+      <div className="mb-5 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-foreground">Resources <span className="ml-1 text-sm font-normal text-muted-foreground">({resources.length})</span></h2>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="gap-1.5"><Upload className="h-4 w-4" /> Upload Resource</Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+            <DialogHeader><DialogTitle>Upload New Resource</DialogTitle></DialogHeader>
+            <form onSubmit={handleAdd} className="space-y-3 pt-1">
+              <div><Label>Title</Label><Input name="title" placeholder="e.g. Algebra Problem Set" required className="mt-1" /></div>
+              <div><Label>Description</Label><Textarea name="description" placeholder="Brief description of the resource..." rows={2} className="mt-1" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Category</Label>
+                  <select name="category" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm" required>
+                    <option value="math">Math Olympiad</option>
+                    <option value="informatics">Informatics</option>
+                  </select>
+                </div>
+                <div>
+                  <Label>Type</Label>
+                  <select name="type" className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm" required>
+                    <option value="book">Book</option>
+                    <option value="worksheet">Worksheet</option>
+                    <option value="video">Video</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <Label>File (PDF, DOC, etc.)</Label>
+                <Input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip"
+                  className="mt-1"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">Max 20MB. Leave empty if linking externally.</p>
+              </div>
+              <Button type="submit" className="w-full gold-gradient border-0 font-semibold text-navy" disabled={uploading}>
+                {uploading ? "Uploading..." : "Upload Resource"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="space-y-2">
+        {resources.map((r) => (
+          <div key={r.id} className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-muted/40">
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-foreground">{r.title}</p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">{r.category}</span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{typeLabels[r.type] || r.type}</span>
+                {r.file_name && <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">📎 {r.file_name}</span>}
+              </div>
+            </div>
+            <div className="ml-3 flex shrink-0 items-center gap-1">
+              {r.file_url && (
+                <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-primary" asChild>
+                  <a href={r.file_url} target="_blank" rel="noopener noreferrer" title="View file">
+                    <Eye className="h-4 w-4" />
+                  </a>
+                </Button>
+              )}
+              <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(r.id)}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+        {resources.length === 0 && <p className="py-12 text-center text-muted-foreground">No resources yet. Upload PDFs, worksheets, or books above.</p>}
+      </div>
+
+      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this resource?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently delete the resource and its file. Cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
