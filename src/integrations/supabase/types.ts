@@ -125,6 +125,42 @@ export type Database = {
         }
         Relationships: []
       }
+      resources: {
+        Row: {
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          file_name: string | null
+          file_url: string | null
+          id: string
+          title: string
+          type: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          file_name?: string | null
+          file_url?: string | null
+          id?: string
+          title: string
+          type?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          file_name?: string | null
+          file_url?: string | null
+          id?: string
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
       scholarships: {
         Row: {
           apply_link: string | null
