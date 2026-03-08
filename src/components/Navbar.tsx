@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X, GraduationCap, LogOut, LayoutDashboard, Shield } from "lucide-react";
+import { Menu, X, GraduationCap, LogOut, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -93,11 +93,6 @@ export function Navbar() {
           ))}
           {user ? (
             <div className="mt-2 space-y-1">
-              {isAdmin && (
-                <Button variant="ghost" size="sm" className="w-full justify-start gap-1" onClick={() => { navigate("/admin"); setMobileOpen(false); }}>
-                  <Shield className="h-4 w-4" /> Admin Panel
-                </Button>
-              )}
               <Button variant="ghost" size="sm" className="w-full justify-start gap-1" onClick={() => { navigate("/dashboard"); setMobileOpen(false); }}>
                 <LayoutDashboard className="h-4 w-4" /> Dashboard
               </Button>
