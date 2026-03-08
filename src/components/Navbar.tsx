@@ -51,11 +51,6 @@ export function Navbar() {
         <div className="hidden items-center gap-2 md:flex">
           {user ? (
             <>
-              {isAdmin && (
-                <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/admin")}>
-                  <Shield className="h-4 w-4" /> Admin
-                </Button>
-              )}
               <Button variant="ghost" size="sm" className="gap-1" onClick={() => navigate("/dashboard")}>
                 <LayoutDashboard className="h-4 w-4" /> Dashboard
               </Button>
