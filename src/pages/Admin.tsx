@@ -1,11 +1,11 @@
 import { useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Plus, CheckCircle2, XCircle, Clock, FileText,
   Trophy, GraduationCap, Trash2, Users,
   BarChart3, Shield, AlertTriangle, Eye,
   TrendingUp, Activity, Upload, BookOpen,
+  Lock, Mail, ArrowRight, LogOut,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,7 +21,6 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -46,20 +45,80 @@ function StatCard({
   );
 }
 
-// ── Main Admin Page ──────────────────────────────────────────────────────────
+// ── Self-contained Admin Page (own auth, no useAuth dependency) ──────────────
 export default function Admin() {
-  const { user, loading, isAdmin } = useAuth();
-  const navigate = useNavigate();
   const { toast } = useToast();
+  const [authReady, setAuthReady] = useState(false);
+  const [adminUser, setAdminUser] = useState<any>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
+  // Login form state
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Check session on mount — no awaits inside onAuthStateChange
   useEffect(() => {
-    if (!loading && (!user || !isAdmin)) {
-      toast({ title: "Access denied", description: "You are not authorized.", variant: "destructive" });
-      navigate("/");
-    }
-  }, [user, loading, isAdmin, navigate, toast]);
+    let cancelled = false;
 
-  if (loading) {
+    const checkAdmin = async (userId: string) => {
+      const { data: roles } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId);
+      const hasAdmin = roles?.some((r: any) => r.role === "admin") ?? false;
+      if (!cancelled) setIsAdmin(hasAdmin);
+    };
+
+    // 1) Restore session first
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return;
+      if (session?.user) {
+        setAdminUser(session.user);
+        checkAdmin(session.user.id);
+      }
+      setAuthReady(true);
+    });
+
+    // 2) Listen for changes (sign in / sign out)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (cancelled) return;
+        const user = session?.user ?? null;
+        setAdminUser(user);
+        if (user) {
+          checkAdmin(user.id);
+        } else {
+          setIsAdmin(false);
+        }
+      }
+    );
+
+    return () => { cancelled = true; subscription.unsubscribe(); };
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      // onAuthStateChange will handle setting adminUser and isAdmin
+    } catch (err: any) {
+      toast({ title: "Login failed", description: err.message, variant: "destructive" });
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setAdminUser(null);
+    setIsAdmin(false);
+  };
+
+  // ── Loading ──
+  if (!authReady) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <Activity className="h-8 w-8 animate-spin text-primary" />
@@ -67,22 +126,92 @@ export default function Admin() {
     );
   }
 
-  if (!isAdmin) return null;
+  // ── Not logged in → show login form ──
+  if (!adminUser) {
+    return (
+      <div className="flex min-h-[80vh] items-center justify-center px-4">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm">
+          <div className="mb-6 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
+              <Shield className="h-6 w-6 text-primary-foreground" />
+            </div>
+            <h1 className="text-xl font-bold text-foreground">Admin Access</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Sign in to continue</p>
+          </div>
+          <form onSubmit={handleLogin} className="space-y-4 rounded-xl border bg-card p-6 shadow-sm">
+            <div>
+              <Label htmlFor="admin-email">Email</Label>
+              <div className="relative mt-1">
+                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="admin-email"
+                  type="email"
+                  placeholder="you@example.com"
+                  className="pl-10"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="admin-password">Password</Label>
+              <div className="relative mt-1">
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="admin-password"
+                  type="password"
+                  placeholder="••••••••"
+                  className="pl-10"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                />
+              </div>
+            </div>
+            <Button type="submit" className="w-full" disabled={loginLoading}>
+              {loginLoading ? "Signing in..." : "Sign In"}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </form>
+        </motion.div>
+      </div>
+    );
+  }
 
+  // ── Logged in but NOT admin ──
+  if (!isAdmin) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4">
+        <Shield className="h-12 w-12 text-destructive" />
+        <h1 className="text-xl font-bold text-foreground">Access Denied</h1>
+        <p className="text-sm text-muted-foreground">You do not have admin privileges.</p>
+        <Button variant="outline" onClick={handleSignOut}>Sign Out</Button>
+      </div>
+    );
+  }
+
+  // ── Admin Panel ──
   return (
     <>
       <section className="hero-gradient py-10 md:py-14">
         <div className="container-narrow px-4">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/20">
-              <Shield className="h-5 w-5 text-accent" />
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/20">
+                <Shield className="h-5 w-5 text-accent" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-primary-foreground md:text-3xl">Admin Panel</h1>
+                <p className="text-sm text-primary-foreground/60">
+                  Signed in as <span className="font-medium text-accent">{adminUser?.email}</span>
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-primary-foreground md:text-3xl">Admin Panel</h1>
-              <p className="text-sm text-primary-foreground/60">
-                Signed in as <span className="font-medium text-accent">{user?.email}</span>
-              </p>
-            </div>
+            <Button variant="ghost" size="sm" className="gap-1 text-primary-foreground/70 hover:text-primary-foreground" onClick={handleSignOut}>
+              <LogOut className="h-4 w-4" /> Sign Out
+            </Button>
           </motion.div>
         </div>
       </section>
@@ -99,10 +228,10 @@ export default function Admin() {
               <TabsTrigger value="scholarships" className="gap-1 text-xs"><GraduationCap className="h-3.5 w-3.5" /> Scholarships</TabsTrigger>
             </TabsList>
             <TabsContent value="overview"><OverviewTab /></TabsContent>
-            <TabsContent value="problems"><ProblemsTab /></TabsContent>
+            <TabsContent value="problems"><ProblemsTab userId={adminUser.id} /></TabsContent>
             <TabsContent value="submissions"><SubmissionsTab /></TabsContent>
-            <TabsContent value="resources"><ResourcesTab /></TabsContent>
-            <TabsContent value="blog"><BlogTab /></TabsContent>
+            <TabsContent value="resources"><ResourcesTab userId={adminUser.id} /></TabsContent>
+            <TabsContent value="blog"><BlogTab userId={adminUser.id} /></TabsContent>
             <TabsContent value="scholarships"><ScholarshipsTab /></TabsContent>
           </Tabs>
         </div>
@@ -167,12 +296,11 @@ function OverviewTab() {
 }
 
 // ── Problems Tab ─────────────────────────────────────────────────────────────
-function ProblemsTab() {
+function ProblemsTab({ userId }: { userId: string }) {
   const [problems, setProblems] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const { toast } = useToast();
-  const { user } = useAuth();
 
   const fetchProblems = async () => {
     const { data } = await supabase.from("problems").select("*").order("created_at", { ascending: false });
@@ -192,7 +320,7 @@ function ProblemsTab() {
       statement: form.get("statement") as string,
       sample_input: form.get("sample_input") as string,
       sample_output: form.get("sample_output") as string,
-      created_by: user?.id,
+      created_by: userId,
     });
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -283,7 +411,7 @@ function ProblemsTab() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this problem?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently delete the problem and all its submissions. This cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>This will permanently delete the problem and all its submissions.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -304,7 +432,7 @@ function SubmissionsTab() {
   const fetchSubs = async () => {
     const { data } = await supabase
       .from("submissions")
-      .select("*, problems(title), profiles:user_id(full_name)")
+      .select("*, problems(title)")
       .order("submitted_at", { ascending: false });
     setSubmissions(data || []);
   };
@@ -356,8 +484,7 @@ function SubmissionsTab() {
                     {s.status === "pending" && <Badge variant="secondary">Pending</Badge>}
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">
-                    by <span className="font-medium">{(s.profiles as any)?.full_name || "Unknown"}</span>
-                    {" · "}{new Date(s.submitted_at).toLocaleDateString("en-PK", { year: "numeric", month: "short", day: "numeric" })}
+                    {new Date(s.submitted_at).toLocaleDateString("en-PK", { year: "numeric", month: "short", day: "numeric" })}
                   </p>
                   <pre className="mt-2 max-h-28 overflow-auto rounded-md bg-muted p-2.5 text-xs text-foreground">{s.answer}</pre>
                 </div>
@@ -381,15 +508,14 @@ function SubmissionsTab() {
   );
 }
 
-// ── Resources Tab (NEW — PDF/file upload) ────────────────────────────────────
-function ResourcesTab() {
+// ── Resources Tab ────────────────────────────────────────────────────────────
+function ResourcesTab({ userId }: { userId: string }) {
   const [resources, setResources] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const { user } = useAuth();
 
   const fetchResources = async () => {
     const { data } = await supabase.from("resources").select("*").order("created_at", { ascending: false });
@@ -433,7 +559,7 @@ function ResourcesTab() {
       type: form.get("type") as string,
       file_url: fileUrl,
       file_name: fileName,
-      created_by: user?.id,
+      created_by: userId,
     });
 
     if (error) {
@@ -450,7 +576,6 @@ function ResourcesTab() {
   const handleDelete = async () => {
     if (!deleteId) return;
     const resource = resources.find((r) => r.id === deleteId);
-    // Delete file from storage if exists
     if (resource?.file_url) {
       const path = resource.file_url.split("/resources/")[1];
       if (path) await supabase.storage.from("resources").remove([path]);
@@ -474,7 +599,7 @@ function ResourcesTab() {
             <DialogHeader><DialogTitle>Upload New Resource</DialogTitle></DialogHeader>
             <form onSubmit={handleAdd} className="space-y-3 pt-1">
               <div><Label>Title</Label><Input name="title" placeholder="e.g. Algebra Problem Set" required className="mt-1" /></div>
-              <div><Label>Description</Label><Textarea name="description" placeholder="Brief description of the resource..." rows={2} className="mt-1" /></div>
+              <div><Label>Description</Label><Textarea name="description" placeholder="Brief description..." rows={2} className="mt-1" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Category</Label>
@@ -494,13 +619,8 @@ function ResourcesTab() {
               </div>
               <div>
                 <Label>File (PDF, DOC, etc.)</Label>
-                <Input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip"
-                  className="mt-1"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">Max 20MB. Leave empty if linking externally.</p>
+                <Input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip" className="mt-1" />
+                <p className="mt-1 text-xs text-muted-foreground">Max 20MB</p>
               </div>
               <Button type="submit" className="w-full gold-gradient border-0 font-semibold text-navy" disabled={uploading}>
                 {uploading ? "Uploading..." : "Upload Resource"}
@@ -524,9 +644,7 @@ function ResourcesTab() {
             <div className="ml-3 flex shrink-0 items-center gap-1">
               {r.file_url && (
                 <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-primary" asChild>
-                  <a href={r.file_url} target="_blank" rel="noopener noreferrer" title="View file">
-                    <Eye className="h-4 w-4" />
-                  </a>
+                  <a href={r.file_url} target="_blank" rel="noopener noreferrer"><Eye className="h-4 w-4" /></a>
                 </Button>
               )}
               <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(r.id)}>
@@ -535,14 +653,14 @@ function ResourcesTab() {
             </div>
           </div>
         ))}
-        {resources.length === 0 && <p className="py-12 text-center text-muted-foreground">No resources yet. Upload PDFs, worksheets, or books above.</p>}
+        {resources.length === 0 && <p className="py-12 text-center text-muted-foreground">No resources yet.</p>}
       </div>
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this resource?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently delete the resource and its file. Cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>This will permanently delete the resource and its file.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -555,12 +673,11 @@ function ResourcesTab() {
 }
 
 // ── Blog Tab ─────────────────────────────────────────────────────────────────
-function BlogTab() {
+function BlogTab({ userId }: { userId: string }) {
   const [posts, setPosts] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const { toast } = useToast();
-  const { user } = useAuth();
 
   const fetchPosts = async () => {
     const { data } = await supabase.from("blog_posts").select("*").order("created_at", { ascending: false });
@@ -580,7 +697,7 @@ function BlogTab() {
       category: form.get("category") as string,
       excerpt: form.get("excerpt") as string,
       published: (form.get("published") as string) === "true",
-      author_id: user?.id,
+      author_id: userId,
     });
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -671,7 +788,7 @@ function BlogTab() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this post?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently remove the blog post. Cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>This will permanently remove the blog post.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -785,7 +902,7 @@ function ScholarshipsTab() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this scholarship?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently remove the scholarship listing. Cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>This will permanently remove the scholarship listing.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
